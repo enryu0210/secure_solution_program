@@ -1,0 +1,7 @@
+pywin32
+fastapi
+uvicorn
+pydantic
+requests
+groq
+python-dotenv

@@ -1,0 +1,5 @@
+{
+    "target_ports": [3389, 1433, 445, 22],
+    "suspicious_process_names": ["nmap", "wireshark", "mimikatz", "aircrack"],
+    "target_event_ids": [4625, 4688, 7045]
+}
