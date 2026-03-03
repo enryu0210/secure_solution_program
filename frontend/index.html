@@ -40,11 +40,11 @@
             </div>
             <div class="bg-white rounded-lg shadow p-6 border-l-4 border-yellow-400">
                 <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">탐지된 위험 요소</h3>
-                <p class="mt-2 text-3xl font-bold text-gray-900">-</p>
+                <p class="mt-2 text-3xl font-bold text-gray-900" id="total-threats">-</p>
             </div>
-            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">시스템 상태</h3>
-                <p class="mt-2 text-3xl font-bold text-green-600">안정</p>
+            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500" id="system-status-card">
+                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">시스템 전체 상태</h3>
+                <p class="mt-2 text-3xl font-bold text-green-600" id="system-status-text">안정</p>
             </div>
         </div>
 
@@ -80,6 +80,31 @@
                 statusBadge.innerText = "● 온라인";
                 statusBadge.className = "text-sm bg-green-500 px-3 py-1 rounded-full text-white";
 
+                let isSystemCritical = false;
+                Object.values(data.agents).forEach(agent => {
+                    // security_data 안의 ransomware_info 확인
+                    if (agent.security_data && 
+                        agent.security_data.ransomware_info && 
+                        agent.security_data.ransomware_info.status.includes("CRITICAL")) {
+                        isSystemCritical = true;
+                    }
+                });
+
+                const statusCard = document.getElementById('system-status-card');
+                const statusText = document.getElementById('system-status-text');
+
+                if (isSystemCritical) {
+                    statusCard.className = "bg-red-50 rounded-lg shadow p-6 border-l-4 border-red-600 animate-pulse";
+                    statusText.className = "mt-2 text-3xl font-bold text-red-600";
+                    statusText.innerText = "🚨 위험 (침해 발생)";
+                    document.getElementById('total-threats').innerText = "랜섬웨어 탐지됨";
+                } else {
+                    statusCard.className = "bg-white rounded-lg shadow p-6 border-l-4 border-green-500";
+                    statusText.className = "mt-2 text-3xl font-bold text-green-600";
+                    statusText.innerText = "안정";
+                    document.getElementById('total-threats').innerText = "0";
+                }
+
                 renderAgents(data.agents);
                 checkIfAnalysisPending(data.agents);
                 
@@ -113,9 +138,17 @@
                        </div>`
                     : marked.parse(agent.ai_analysis);
 
+                const isCritical = agent.security_data && agent.security_data.ransomware_info && agent.security_data.ransomware_info.status.includes("CRITICAL");
+
                 const badgeHtml = isAnalyzing
                     ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">분석 진행 중</span>`
                     : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">분석 완료</span>`;
+
+                const actionButtonHtml = isCritical
+                    ? `<button onclick="resolveAlert('${machineId}')" class="ml-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded shadow transition">
+                         🚨 경고 해제 및 복구
+                       </button>`
+                    : ``;
 
                 const cardHtml = `
                     <div class="p-6 hover:bg-gray-50 transition">
@@ -124,7 +157,10 @@
                                 <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">💻 ${machineId}</h3>
                                 <p class="text-sm text-gray-500 mt-1">마지막 스캔: ${agent.last_updated}</p>
                             </div>
-                            ${badgeHtml}
+                            <div class="flex items-center">
+                                ${badgeHtml}
+                                ${actionButtonHtml}
+                            </div>
                         </div>
                         <div class="bg-indigo-50/50 rounded p-5 border border-indigo-100 mt-4">
                             <h4 class="text-sm font-bold text-indigo-900 mb-3 flex items-center gap-2">✨ AI 보안 취약점 진단</h4>
@@ -134,6 +170,23 @@
                 `;
                 container.innerHTML += cardHtml;
             });
+        }
+
+        async function resolveAlert(machineId) {
+            if (!confirm(`[${machineId}] 에이전트의 랜섬웨어 경고를 해제하시겠습니까? (미끼 파일이 자동 복구됩니다)`)) return;
+
+            try {
+                const response = await fetch(`/api/v1/agent/${machineId}/reset`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    alert("경고가 성공적으로 해제되었습니다. 다음 스캔부터 정상 반영됩니다.");
+                    fetchDashboardData(); // 즉시 새로고침하여 초록색 화면으로 변경
+                }
+            } catch (error) {
+                alert("경고 해제 요청 중 오류가 발생했습니다.");
+            }
         }
 
         // 분석 중인 에이전트가 있는지 확인하고 자동 새로고침을 켜고 끄는 로직

@@ -5,3 +5,4 @@ pydantic
 requests
 groq
 python-dotenv
+watchdog

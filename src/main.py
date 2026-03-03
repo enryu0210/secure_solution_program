@@ -2,6 +2,7 @@ import os
 import sys
 import ctypes
 import logging
+import time
 import socket
 import json
 import requests
@@ -16,6 +17,8 @@ from agent_manager import AgentManager
 from scanners.process import ProcessScanner
 from scanners.network import NetworkScanner
 from scanners.event_log import EventLogScanner
+from scanners.software import SoftwareScanner
+from scanners.ransomware import RansomwareScanner
 
 def is_admin():
     try:
@@ -27,51 +30,41 @@ def get_machine_id():
     """현재 PC의 고유 식별자(컴퓨터 이름)를 가져옵니다."""
     return socket.gethostname()
 
-def send_to_server(payload_json: str, server_url: str):
-    """수집된 JSON 데이터를 FastAPI 백엔드로 POST 전송합니다."""
+def send_to_server(payload_json: str, server_url: str, ransomware_scanner):
     headers = {'Content-Type': 'application/json'}
     try:
-        # 1. 기존 payload(문자열)를 딕셔너리로 변환
         data = json.loads(payload_json)
-        
-        # 2. 서버가 요구하는 machine_id를 데이터 최상단에 주입
         data['machine_id'] = get_machine_id()
         
-        logging.info(f"🚀 중앙 서버({server_url})로 보안 데이터 전송 중...")
-        
-        # 3. POST 요청으로 데이터 전송 (타임아웃 10초 설정)
+        # 서버로 데이터 전송
         response = requests.post(server_url, json=data, headers=headers, timeout=10)
         
         if response.status_code == 200:
             logging.info("✅ 서버 전송 성공!")
-            print(f"[서버 응답] {response.json()}")
+            
+            # 서버가 응답과 함께 내려보낸 '명령(command)' 확인
+            resp_data = response.json()
+            commands = resp_data.get("commands", [])
+            
+            # 초기화 명령이 들어있다면 스캐너 상태 리셋
+            if "reset_ransomware" in commands:
+                ransomware_scanner.reset_status()
+                
         else:
             logging.error(f"❌ 서버 전송 실패 (상태 코드: {response.status_code})")
-            print(f"[서버 에러 내용] {response.text}")
             
-    except requests.exceptions.ConnectionError:
-        logging.error("❌ 서버에 연결할 수 없습니다. FastAPI 서버가 켜져 있는지 확인하세요.")
     except Exception as e:
         logging.error(f"❌ 전송 중 오류 발생: {e}")
 
 def main():
     if not is_admin():
         print("[System] 관리자 권한이 필요합니다. UAC 창을 통해 권한을 승인해 주세요.")
-        
         script_path = os.path.abspath(sys.argv[0])
-        
-        # =====================================================================
-        # [최종 해결책] 
-        # 파이썬을 직접 실행하는 대신 cmd.exe를 띄우고, 
-        # "파이썬 실행 & 끝나면 무조건 pause"라는 명령어를 통째로 던집니다.
-        # 이렇게 하면 파이썬이 종료되거나 에러가 나더라도 cmd 창은 절대 닫히지 않습니다.
-        # =====================================================================
         params = f'/c ""{sys.executable}" "{script_path}" & pause"'
         
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", "cmd.exe", params, None, 1
         )
-        # 원본(일반 권한) 스크립트는 즉시 종료합니다.
         sys.exit()
 
     # --- 여기서부터는 관리자 권한 창에서 실행되는 로직 ---
@@ -87,25 +80,35 @@ def main():
         manager.register_scanner(ProcessScanner(agent_config))
         manager.register_scanner(NetworkScanner(agent_config))
         manager.register_scanner(EventLogScanner(agent_config))
+        manager.register_scanner(SoftwareScanner(agent_config))
         
-        final_payload = manager.run_all_scans()
-        print("\n========================================")
-        print("[서버 전송 대기 중인 JSON Payload]")
-        print(final_payload)
-        print("========================================\n")
-
-        # 백엔드 서버로 데이터 전송 실행
-        # 로컬 테스트용 주소 (포트 번호가 FastAPI 설정과 일치해야 합니다)
+        # 랜섬웨어 스캐너만 따로 빼서 변수에 저장한 뒤 등록합니다.
+        ransom_scanner = RansomwareScanner(agent_config)
+        manager.register_scanner(ransom_scanner)
+        
         SERVER_URL = "http://localhost:8000/api/v1/report"
-        send_to_server(final_payload, SERVER_URL)
+        
+        logging.info("🛡️ 에이전트가 실시간 감시 모드로 전환되었습니다.")
+        logging.info("⚠️ 종료하려면 이 까만 콘솔 창을 그냥 닫으시면 됩니다.\n")
 
+        # =====================================================================
+        # [추가된 부분] 무한 루프를 돌면서 30초마다 스캔 및 서버 전송
+        # =====================================================================
+        while True:
+            final_payload = manager.run_all_scans()
+            
+            # 서버로 데이터 전송 실행
+            send_to_server(final_payload, SERVER_URL, ransom_scanner)
+            
+            logging.info("⏳ 다음 보안 스캔까지 30초 대기 중...\n")
+            time.sleep(30) # 30초 동안 대기 후 다시 루프의 처음으로 돌아감
+
+    except KeyboardInterrupt:
+        logging.info("\n🛑 사용자에 의해 에이전트 실시간 감시가 종료되었습니다.")
     except Exception as e:
         print(f"\n[오류 발생] {e}")
         import traceback
         traceback.print_exc()
-        
-    # finally 구문을 완전히 삭제했습니다. 
-    # 창 유지는 위에서 설정한 cmd.exe의 '& pause'가 알아서 처리합니다.
 
 if __name__ == "__main__":
     main()
