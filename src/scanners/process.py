@@ -8,17 +8,23 @@ class ProcessScanner(SystemScanner):
         return "process_info"
 
     def scan(self) -> Dict[str, Any]:
-        self.logger.info("활성 프로세스 스캔 시작...")
         suspicious_found = []
+        running_processes = []
         process_count = 0
 
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 p_info = proc.info
-                process_count += 1
-                
-                # config.json의 값을 기반으로 검사
                 if p_info['name']:
+                    process_count += 1
+                    
+                    # 1. 전체 프로세스 목록에 추가 (대시보드 표시용)
+                    running_processes.append({
+                        "pid": p_info['pid'], 
+                        "name": p_info['name']
+                    })
+                    
+                    # 2. 의심스러운 프로세스 검사
                     is_suspicious = any(
                         sus_name.lower() in p_info['name'].lower() 
                         for sus_name in self.config.suspicious_process_names
@@ -31,5 +37,6 @@ class ProcessScanner(SystemScanner):
                 
         return {
             "total_processes": process_count,
-            "suspicious_processes": suspicious_found
+            "suspicious_processes": suspicious_found,
+            "running_processes": running_processes # 결과 딕셔너리에 추가
         }

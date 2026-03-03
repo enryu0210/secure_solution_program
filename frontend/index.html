@@ -7,63 +7,81 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        /* AI 마크다운 리포트를 예쁘게 보여주기 위한 커스텀 스타일 */
         .markdown-body h1 { font-size: 1.5rem; font-weight: bold; margin-bottom: 0.5rem; color: #1f2937; }
         .markdown-body h2 { font-size: 1.25rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #374151; }
         .markdown-body h3 { font-size: 1.1rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #4b5563; }
         .markdown-body p { margin-bottom: 0.75rem; line-height: 1.6; color: #4b5563; }
         .markdown-body ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; color: #4b5563; }
         .markdown-body strong { color: #111827; }
+        
+        /* 스크롤바 커스텀 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c7c7cc; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
     </style>
 </head>
-<body class="bg-gray-50 font-sans">
+<body class="bg-gray-50 font-sans min-h-screen flex flex-col">
 
-    <nav class="bg-indigo-600 text-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav class="bg-indigo-600 text-white shadow-md z-10 relative">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
-                <div class="flex items-center">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🛡️</span>
                     <span class="font-bold text-xl tracking-tight">ShieldX Dashboard</span>
                 </div>
                 <div>
-                    <span class="text-sm bg-indigo-500 px-3 py-1 rounded-full" id="status-badge">서버 연결 대기 중...</span>
+                    <span class="text-sm bg-indigo-500 px-3 py-1 rounded-full border border-indigo-400 shadow-inner" id="status-badge">서버 연결 대기 중...</span>
                 </div>
             </div>
         </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-indigo-500">
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">연결된 에이전트</h3>
-                <p class="mt-2 text-3xl font-bold text-gray-900" id="total-agents">0</p>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-yellow-400">
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">탐지된 위험 요소</h3>
-                <p class="mt-2 text-3xl font-bold text-gray-900" id="total-threats">-</p>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500" id="system-status-card">
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider">시스템 전체 상태</h3>
-                <p class="mt-2 text-3xl font-bold text-green-600" id="system-status-text">안정</p>
-            </div>
-        </div>
-
-        <div class="bg-white rounded-lg shadow overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                <h2 class="text-lg font-bold text-gray-800">에이전트 보안 리포트</h2>
-                <button onclick="fetchDashboardData()" class="text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 py-1 px-3 rounded shadow-sm transition">
-                    🔄 새로고침
-                </button>
-            </div>
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+        <div class="flex flex-col md:flex-row gap-8">
             
-            <div id="agent-container" class="divide-y divide-gray-200">
-                <div class="p-6 text-center text-gray-500">데이터를 불러오는 중입니다...</div>
-            </div>
+            <aside class="w-full md:w-64 shrink-0 flex flex-col gap-6">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 border-l-4 border-l-indigo-500">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">연결된 에이전트</h3>
+                    <div class="flex items-end gap-2">
+                        <p class="text-4xl font-extrabold text-gray-900" id="total-agents">0</p>
+                        <span class="text-sm text-gray-500 mb-1">대</span>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 border-l-4 border-l-yellow-400">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">탐지된 위험 요소</h3>
+                    <p class="mt-1 text-2xl font-bold text-gray-800" id="total-threats">-</p>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 border-l-4 border-l-green-500" id="system-status-card">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">시스템 전체 상태</h3>
+                    <p class="mt-1 text-3xl font-extrabold text-green-600" id="system-status-text">안정</p>
+                </div>
+            </aside>
+
+            <section class="flex-1 overflow-hidden">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 h-full flex flex-col">
+                    <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center sticky top-0 z-10 bg-white">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800">보안 리포트 및 제어 센터</h2>
+                            <p class="text-sm text-gray-500 mt-1">AI가 실시간으로 분석한 각 디바이스의 취약점과 대응 방안입니다.</p>
+                        </div>
+                        <button onclick="fetchDashboardData()" class="text-sm bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2 px-4 rounded-lg shadow-sm flex items-center gap-2">
+                            🔄 새로고침
+                        </button>
+                    </div>
+                    
+                    <div id="agent-container" class="divide-y divide-gray-100 bg-gray-50/30 flex-1 overflow-y-auto">
+                        <div class="p-12 text-center text-gray-400">데이터를 불러오는 중입니다...</div>
+                    </div>
+                </div>
+            </section>
+
         </div>
     </main>
 
     <script>
-        // 하드코딩된 주소 대신 상대 경로 사용 (서버 배포 시 유리함)
         const API_URL = "/api/v1/dashboard";
         let autoRefreshInterval = null;
 
@@ -77,32 +95,27 @@
                 const data = await response.json();
                 
                 document.getElementById('total-agents').innerText = data.total_connected_agents;
-                statusBadge.innerText = "● 온라인";
-                statusBadge.className = "text-sm bg-green-500 px-3 py-1 rounded-full text-white";
+                statusBadge.innerText = "● 서버 온라인";
+                statusBadge.className = "text-sm bg-green-500 px-3 py-1 rounded-full text-white font-medium shadow-inner";
 
                 let isSystemCritical = false;
                 Object.values(data.agents).forEach(agent => {
-                    // security_data 안의 ransomware_info 확인
-                    if (agent.security_data && 
-                        agent.security_data.ransomware_info && 
-                        agent.security_data.ransomware_info.status.includes("CRITICAL")) {
-                        isSystemCritical = true;
-                    }
+                    if (agent.security_data?.ransomware_info?.status.includes("CRITICAL")) isSystemCritical = true;
                 });
 
                 const statusCard = document.getElementById('system-status-card');
                 const statusText = document.getElementById('system-status-text');
 
                 if (isSystemCritical) {
-                    statusCard.className = "bg-red-50 rounded-lg shadow p-6 border-l-4 border-red-600 animate-pulse";
-                    statusText.className = "mt-2 text-3xl font-bold text-red-600";
+                    statusCard.className = "bg-red-50 rounded-xl shadow-md border border-red-200 p-6 border-l-4 border-l-red-600 animate-pulse";
+                    statusText.className = "mt-1 text-3xl font-extrabold text-red-600";
                     statusText.innerText = "🚨 위험 (침해 발생)";
                     document.getElementById('total-threats').innerText = "랜섬웨어 탐지됨";
                 } else {
-                    statusCard.className = "bg-white rounded-lg shadow p-6 border-l-4 border-green-500";
-                    statusText.className = "mt-2 text-3xl font-bold text-green-600";
+                    statusCard.className = "bg-white rounded-xl shadow-sm border border-gray-100 p-6 border-l-4 border-l-green-500";
+                    statusText.className = "mt-1 text-3xl font-extrabold text-green-600";
                     statusText.innerText = "안정";
-                    document.getElementById('total-threats').innerText = "0";
+                    document.getElementById('total-threats').innerText = "0건";
                 }
 
                 renderAgents(data.agents);
@@ -110,9 +123,43 @@
                 
             } catch (error) {
                 console.error("데이터 통신 오류:", error);
-                statusBadge.innerText = "서버 연결 실패";
-                statusBadge.className = "text-sm bg-red-500 px-3 py-1 rounded-full text-white";
+                statusBadge.innerText = "서버 연결 끊김";
+                statusBadge.className = "text-sm bg-red-500 px-3 py-1 rounded-full text-white shadow-inner";
             }
+        }
+
+        // [모듈화] 프로세스 목록 테이블 생성 헬퍼 함수
+        function generateProcessListHtml(machineId, processInfo) {
+            if (!processInfo || !processInfo.running_processes || processInfo.running_processes.length === 0) {
+                return `<tr><td colspan="3" class="py-4 text-center text-xs text-gray-400">데이터 대기 중...</td></tr>`;
+            }
+
+            // 알파벳/가나다 이름순 정렬
+            const sortedProcesses = [...processInfo.running_processes].sort((a, b) => 
+                a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+            );
+            const suspiciousPids = processInfo.suspicious_processes ? processInfo.suspicious_processes.map(sp => sp.pid) : [];
+
+            let html = '';
+            sortedProcesses.forEach(proc => {
+                const isSus = suspiciousPids.includes(proc.pid);
+                const rowClass = isSus ? 'bg-red-50 text-red-700 font-bold' : 'hover:bg-gray-100 text-gray-600';
+                const nameDisplay = isSus ? `🚨 ${proc.name}` : proc.name;
+
+                html += `
+                    <tr class="${rowClass} transition border-b border-gray-100 last:border-0">
+                        <td class="py-1.5 px-3 font-mono text-xs">${proc.pid}</td>
+                        <td class="py-1.5 px-3 text-xs truncate max-w-[120px]" title="${proc.name}">${nameDisplay}</td>
+                        <td class="py-1.5 px-3 text-center">
+                            <button onclick="document.getElementById('pid-input-${machineId}').value = '${proc.pid}'" 
+                                    class="text-[10px] bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white font-semibold py-1 px-2 rounded transition">
+                                선택
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            return html;
         }
 
         function renderAgents(agentsData) {
@@ -122,49 +169,108 @@
             const agentKeys = Object.keys(agentsData);
             
             if (agentKeys.length === 0) {
-                container.innerHTML = `<div class="p-6 text-center text-gray-500">연결된 에이전트가 없습니다.</div>`;
+                container.innerHTML = `<div class="p-12 text-center text-gray-500">연결된 에이전트가 없습니다.</div>`;
                 return;
             }
 
             agentKeys.forEach(machineId => {
                 const agent = agentsData[machineId];
                 const isAnalyzing = agent.ai_analysis === "분석 중...";
+                const secData = agent.security_data || {};
                 
-                // 분석 중일 때는 애니메이션을, 완료되었을 때는 마크다운 렌더링을 적용
-                const aiReportHtml = isAnalyzing 
-                    ? `<div class="text-indigo-600 font-medium animate-pulse flex items-center gap-2">
-                         <svg class="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                         AI가 보안 로그를 딥러닝 분석 중입니다...
-                       </div>`
-                    : marked.parse(agent.ai_analysis);
+                // AI 리포트 텍스트 처리
+                let aiReportHtml = '';
+                if (isAnalyzing) {
+                    aiReportHtml = `<div class="text-indigo-600 font-medium animate-pulse flex items-center gap-2">
+                                      AI가 딥러닝 모델로 분석 중입니다...
+                                    </div>`;
+                } else if (!agent.ai_analysis || agent.ai_analysis.includes("error") || agent.ai_analysis.includes("오류")) {
+                    aiReportHtml = `<div class="p-4 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">
+                                      <strong>⚠️ AI 분석 오류 발생:</strong> 데이터 분석을 실패했습니다.<br>
+                                      <span class="text-gray-500 text-xs">${agent.ai_analysis || ""}</span>
+                                    </div>`;
+                } else {
+                    aiReportHtml = marked.parse(agent.ai_analysis);
+                }
 
-                const isCritical = agent.security_data && agent.security_data.ransomware_info && agent.security_data.ransomware_info.status.includes("CRITICAL");
-
+                const isCritical = secData.ransomware_info?.status.includes("CRITICAL");
+                const usbCount = secData.usb_info?.count || 0;
+                
                 const badgeHtml = isAnalyzing
-                    ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">분석 진행 중</span>`
-                    : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">분석 완료</span>`;
+                    ? `<span class="px-2.5 py-1 rounded-md text-xs font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200">분석 진행 중</span>`
+                    : `<span class="px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">분석 완료</span>`;
 
                 const actionButtonHtml = isCritical
-                    ? `<button onclick="resolveAlert('${machineId}')" class="ml-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded shadow transition">
-                         🚨 경고 해제 및 복구
-                       </button>`
-                    : ``;
+                    ? `<button onclick="resolveAlert('${machineId}')" class="ml-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1.5 px-3 rounded shadow-md transition">
+                         🚨 랜섬웨어 경고 해제
+                       </button>` : '';
 
+                const processListHtml = generateProcessListHtml(machineId, secData.process_info);
+
+                // 핵심 수정부: lg:flex-row를 통해 AI 리포트(좌측)와 제어판(우측)을 양옆으로 나눕니다.
                 const cardHtml = `
-                    <div class="p-6 hover:bg-gray-50 transition">
-                        <div class="flex justify-between items-start mb-4">
+                    <div class="p-6 bg-white hover:bg-gray-50 transition duration-200">
+                        <div class="flex justify-between items-start mb-5 border-b border-gray-100 pb-4">
                             <div>
-                                <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">💻 ${machineId}</h3>
-                                <p class="text-sm text-gray-500 mt-1">마지막 스캔: ${agent.last_updated}</p>
+                                <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                    💻 ${machineId} 
+                                    ${usbCount > 0 ? `<span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">🔌 USB ${usbCount}</span>` : ''}
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">마지막 통신: ${agent.last_updated}</p>
                             </div>
                             <div class="flex items-center">
-                                ${badgeHtml}
-                                ${actionButtonHtml}
+                                ${badgeHtml} ${actionButtonHtml}
                             </div>
                         </div>
-                        <div class="bg-indigo-50/50 rounded p-5 border border-indigo-100 mt-4">
-                            <h4 class="text-sm font-bold text-indigo-900 mb-3 flex items-center gap-2">✨ AI 보안 취약점 진단</h4>
-                            <div class="markdown-body text-sm">${aiReportHtml}</div>
+
+                        <div class="flex flex-col lg:flex-row gap-6">
+                            
+                            <div class="flex-1 bg-indigo-50/30 rounded-lg p-6 border border-indigo-100 overflow-hidden">
+                                <h4 class="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2 border-b border-indigo-100 pb-2">
+                                    ✨ Llama 3 기반 보안 취약점 심층 진단
+                                </h4>
+                                <div class="markdown-body text-sm overflow-y-auto max-h-[400px]">
+                                    ${aiReportHtml}
+                                </div>
+                            </div>
+
+                            <div class="w-full lg:w-80 shrink-0 flex flex-col gap-4">
+                                
+                                <div class="bg-red-50/50 p-4 rounded-lg border border-red-100 shadow-sm">
+                                    <span class="text-sm font-bold text-red-800 flex items-center gap-1 mb-2">
+                                        ⚡ 강제 종료 제어판
+                                    </span>
+                                    <div class="flex items-center gap-2">
+                                        <input type="text" id="pid-input-${machineId}" readonly placeholder="아래 목록에서 선택" 
+                                               class="text-sm border border-gray-300 bg-white rounded px-2 py-1.5 flex-1 focus:outline-none font-mono">
+                                        <button onclick="sendRemoteCommand('${machineId}', 'kill_process')" 
+                                                class="text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded shadow transition whitespace-nowrap">
+                                            종료 실행
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded border border-gray-200 shadow-sm flex flex-col h-[300px]">
+                                    <h4 class="text-xs font-bold text-gray-700 p-2 border-b border-gray-100 bg-gray-50">
+                                        실행 중인 프로세스 (이름순)
+                                    </h4>
+                                    <div class="overflow-y-auto flex-1">
+                                        <table class="w-full">
+                                            <thead class="bg-white sticky top-0 shadow-sm z-10">
+                                                <tr>
+                                                    <th class="py-1 px-3 text-left text-[11px] text-gray-400">PID</th>
+                                                    <th class="py-1 px-3 text-left text-[11px] text-gray-400">이름</th>
+                                                    <th class="py-1 px-3 text-center text-[11px] text-gray-400">동작</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${processListHtml}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                            </div>
                         </div>
                     </div>
                 `;
@@ -173,34 +279,37 @@
         }
 
         async function resolveAlert(machineId) {
-            if (!confirm(`[${machineId}] 에이전트의 랜섬웨어 경고를 해제하시겠습니까? (미끼 파일이 자동 복구됩니다)`)) return;
-
+            if (!confirm(`[${machineId}] 랜섬웨어 경고를 해제하시겠습니까?`)) return;
             try {
-                const response = await fetch(`/api/v1/agent/${machineId}/reset`, {
-                    method: 'POST'
-                });
-                
-                if (response.ok) {
-                    alert("경고가 성공적으로 해제되었습니다. 다음 스캔부터 정상 반영됩니다.");
-                    fetchDashboardData(); // 즉시 새로고침하여 초록색 화면으로 변경
-                }
-            } catch (error) {
-                alert("경고 해제 요청 중 오류가 발생했습니다.");
-            }
+                const res = await fetch(`/api/v1/agent/${machineId}/reset`, { method: 'POST' });
+                if (res.ok) fetchDashboardData(); 
+            } catch (error) { alert("오류가 발생했습니다."); }
         }
 
-        // 분석 중인 에이전트가 있는지 확인하고 자동 새로고침을 켜고 끄는 로직
+        async function sendRemoteCommand(machineId, action) {
+            const inputEl = document.getElementById(`pid-input-${machineId}`);
+            const targetValue = inputEl.value.trim();
+            
+            if (!targetValue) return alert("목록에서 종료할 프로세스를 먼저 선택해주세요.");
+            if (!confirm(`PID ${targetValue} 프로세스를 강제 종료하시겠습니까?`)) return;
+
+            try {
+                const res = await fetch(`/api/v1/agent/${machineId}/command`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action, target: targetValue })
+                });
+                if (res.ok) {
+                    alert("명령이 등록되었습니다.");
+                    inputEl.value = ''; 
+                }
+            } catch (error) { alert("명령 전송 실패"); }
+        }
+
         function checkIfAnalysisPending(agentsData) {
             const isAnyAnalyzing = Object.values(agentsData).some(agent => agent.ai_analysis === "분석 중...");
-            
-            if (isAnyAnalyzing && !autoRefreshInterval) {
-                // 분석 중인 건이 있으면 3초마다 데이터를 갱신
-                autoRefreshInterval = setInterval(fetchDashboardData, 3000);
-            } else if (!isAnyAnalyzing && autoRefreshInterval) {
-                // 모두 분석이 끝났으면 불필요한 트래픽을 막기 위해 갱신 중지
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
-            }
+            if (isAnyAnalyzing && !autoRefreshInterval) autoRefreshInterval = setInterval(fetchDashboardData, 3000);
+            else if (!isAnyAnalyzing && autoRefreshInterval) { clearInterval(autoRefreshInterval); autoRefreshInterval = null; }
         }
 
         window.addEventListener('DOMContentLoaded', fetchDashboardData);
