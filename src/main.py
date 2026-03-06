@@ -55,7 +55,10 @@ def send_to_server(payload_json: str, server_url: str, ransomware_scanner, execu
                     ransomware_scanner.reset_status()
                 # cmd가 C&C 딕셔너리 명령일 때 (예: {"action": "kill_process", ...})
                 elif isinstance(cmd, dict):
-                    executor.execute(cmd)
+                    if cmd.get("action") == "resume_and_whitelist":
+                        ransomware_scanner.resume_and_whitelist(cmd.get("target"))
+                    else:
+                        executor.execute(cmd)
                 else:
                     logging.warning(f"알 수 없는 명령 형태입니다: {cmd}")
                     
@@ -90,7 +93,10 @@ def realtime_worker(machine_id: str, base_url: str, config, ransomware_scanner, 
                         ransomware_scanner.reset_status()
                     elif isinstance(cmd, dict):
                         logging.info(f"⚡ [Realtime] 원격 제어 명령 수신: {cmd.get('action')}")
-                        executor.execute(cmd)
+                        if cmd.get("action") == "resume_and_whitelist":
+                            ransomware_scanner.resume_and_whitelist(cmd.get("target"))
+                        else:
+                            executor.execute(cmd)
                         
         except Exception:
             # 실시간 통신은 에러가 나도 조용히 넘기고 3초 뒤 다시 시도
@@ -132,7 +138,7 @@ def main():
         ransom_scanner = RansomwareScanner(agent_config)
         manager.register_scanner(ransom_scanner)
         
-        SERVER_URL = "http://localhost:8000/api/v1/report"
+        SERVER_URL = "http://localhost:28080/api/v1/report"
         API_BASE_URL = SERVER_URL.rsplit('/', 1)[0]
         SCAN_INTERVAL = 60 # 하드코딩 방지: 대기 시간을 변수로 분리하여 일치시킴
         

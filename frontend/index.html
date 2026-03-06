@@ -131,7 +131,7 @@
         // [모듈화] 프로세스 목록 테이블 생성 헬퍼 함수
         function generateProcessListHtml(machineId, processInfo) {
             if (!processInfo || !processInfo.running_processes || processInfo.running_processes.length === 0) {
-                return `<tr><td colspan="3" class="py-4 text-center text-xs text-gray-400">데이터 대기 중...</td></tr>`;
+                return `<tr><td colspan="2" class="py-4 text-center text-xs text-gray-400">데이터 대기 중...</td></tr>`;
             }
 
             // 알파벳/가나다 이름순 정렬
@@ -150,13 +150,35 @@
                     <tr class="${rowClass} transition border-b border-gray-100 last:border-0">
                         <td class="py-1.5 px-3 font-mono text-xs">${proc.pid}</td>
                         <td class="py-1.5 px-3 text-xs truncate max-w-[120px]" title="${proc.name}">${nameDisplay}</td>
-                        <td class="py-1.5 px-3 text-center">
-                            <button onclick="document.getElementById('pid-input-${machineId}').value = '${proc.pid}'" 
-                                    class="text-[10px] bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white font-semibold py-1 px-2 rounded transition">
-                                선택
-                            </button>
-                        </td>
                     </tr>
+                `;
+            });
+            return html;
+        }
+
+        // 일시 정지된 위협 통제 UI 헬퍼
+        function generateSuspendedProcessHtml(machineId, suspendedProcesses) {
+            if (!suspendedProcesses || suspendedProcesses.length === 0) {
+                return `<div class="text-sm text-gray-500 text-center py-4 bg-white rounded border border-gray-200 shadow-sm">현재 감지된 위협이 없습니다.</div>`;
+            }
+
+            let html = '';
+            suspendedProcesses.forEach(proc => {
+                html += `
+                    <div class="flex items-center justify-between p-3 bg-white rounded border border-red-300 shadow-sm mb-2">
+                        <div class="overflow-hidden mr-2">
+                            <span class="font-bold text-red-700 block truncate" title="${proc.name}">${proc.name}</span>
+                            <span class="text-xs text-gray-500 block font-mono">PID: ${proc.pid}</span>
+                        </div>
+                        <div class="flex flex-col gap-1 shrink-0">
+                            <button onclick="sendRemoteCommand('${machineId}', 'resume_and_whitelist', '${proc.pid}')" class="text-[11px] bg-green-100 hover:bg-green-600 hover:text-white text-green-700 font-bold py-1 px-3 rounded transition">
+                                ✅ 승인(안전)
+                            </button>
+                            <button onclick="sendRemoteCommand('${machineId}', 'kill_process', '${proc.pid}')" class="text-[11px] bg-red-100 hover:bg-red-600 hover:text-white text-red-700 font-bold py-1 px-3 rounded transition">
+                                🗑️ 삭제(종료)
+                            </button>
+                        </div>
+                    </div>
                 `;
             });
             return html;
@@ -206,6 +228,7 @@
                        </button>` : '';
 
                 const processListHtml = generateProcessListHtml(machineId, secData.process_info);
+                const suspendedHtml = generateSuspendedProcessHtml(machineId, secData.ransomware_info?.suspended_processes);
 
                 // 핵심 수정부: lg:flex-row를 통해 AI 리포트(좌측)와 제어판(우측)을 양옆으로 나눕니다.
                 const cardHtml = `
@@ -236,23 +259,18 @@
 
                             <div class="w-full lg:w-80 shrink-0 flex flex-col gap-4">
                                 
-                                <div class="bg-red-50/50 p-4 rounded-lg border border-red-100 shadow-sm">
-                                    <span class="text-sm font-bold text-red-800 flex items-center gap-1 mb-2">
-                                        ⚡ 강제 종료 제어판
+                                <div class="bg-red-50/50 p-4 rounded-lg border border-red-200 shadow-sm">
+                                    <span class="text-sm font-bold text-red-800 flex items-center gap-1 mb-3">
+                                        ⚡ 일시 정지(차단)된 위협 통제
                                     </span>
-                                    <div class="flex items-center gap-2">
-                                        <input type="text" id="pid-input-${machineId}" readonly placeholder="아래 목록에서 선택" 
-                                               class="text-sm border border-gray-300 bg-white rounded px-2 py-1.5 flex-1 focus:outline-none font-mono">
-                                        <button onclick="sendRemoteCommand('${machineId}', 'kill_process')" 
-                                                class="text-xs bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded shadow transition whitespace-nowrap">
-                                            종료 실행
-                                        </button>
+                                    <div class="flex flex-col max-h-[220px] overflow-y-auto pr-1">
+                                        ${suspendedHtml}
                                     </div>
                                 </div>
 
                                 <div class="bg-white rounded border border-gray-200 shadow-sm flex flex-col h-[300px]">
                                     <h4 class="text-xs font-bold text-gray-700 p-2 border-b border-gray-100 bg-gray-50">
-                                        실행 중인 프로세스 (이름순)
+                                        실행 중인 프로세스 (비교 참고용)
                                     </h4>
                                     <div class="overflow-y-auto flex-1">
                                         <table class="w-full">
@@ -260,7 +278,6 @@
                                                 <tr>
                                                     <th class="py-1 px-3 text-left text-[11px] text-gray-400">PID</th>
                                                     <th class="py-1 px-3 text-left text-[11px] text-gray-400">이름</th>
-                                                    <th class="py-1 px-3 text-center text-[11px] text-gray-400">동작</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -286,22 +303,25 @@
             } catch (error) { alert("오류가 발생했습니다."); }
         }
 
-        async function sendRemoteCommand(machineId, action) {
-            const inputEl = document.getElementById(`pid-input-${machineId}`);
-            const targetValue = inputEl.value.trim();
+        async function sendRemoteCommand(machineId, action, targetValue) {
+            if (!targetValue) return alert("대상이 명확하지 않습니다.");
             
-            if (!targetValue) return alert("목록에서 종료할 프로세스를 먼저 선택해주세요.");
-            if (!confirm(`PID ${targetValue} 프로세스를 강제 종료하시겠습니까?`)) return;
+            let confirmMsg = action === 'kill_process' 
+                ? `정말 PID ${targetValue} 프로세스를 삭제(완전 종료) 처리하시겠습니까?` 
+                : `PID ${targetValue} 프로세스를 안전한 프로그램으로 승인하고 일시 정지를 해제(화이트리스트 추가)하시겠습니까?`;
+                
+            if (!confirm(confirmMsg)) return;
 
             try {
                 const res = await fetch(`/api/v1/agent/${machineId}/command`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: action, target: targetValue })
+                    body: JSON.stringify({ action: action, target: String(targetValue) })
                 });
                 if (res.ok) {
-                    alert("명령이 등록되었습니다.");
-                    inputEl.value = ''; 
+                    alert("명령이 성공적으로 전달되었습니다.");
+                    // 변경 즉시 UI 새로고침
+                    fetchDashboardData(); 
                 }
             } catch (error) { alert("명령 전송 실패"); }
         }

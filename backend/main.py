@@ -57,6 +57,7 @@ class SoftwareInfo(BaseModel):
 class RansomwareInfo(BaseModel):
     status: str = "Safe"
     tampered_files: List[str] = []
+    suspended_processes: List[Dict[str, Any]] = []
     error: Optional[str] = None
 
 class UsbInfo(BaseModel):
@@ -90,7 +91,7 @@ def analyze_security_with_ai(machine_id: str, payload_data: dict):
     * **비즈니스 리스크:** (이 상태를 방치할 경우 기업 데이터나 업무에 미칠 수 있는 구체적인 피해 예상)
 
     ### 🚨 핵심 보안 위협 분석
-    * **1. 랜섬웨어 및 파일 훼손 감시:** (ransomware_info를 분석. status가 CRITICAL일 경우 강력하게 경고)
+    * **1. 랜섬웨어 및 파일 훼손 감시:** (ransomware_info를 분석. status가 CRITICAL일 경우 강력하게 경고. suspended_processes 항목이 있다면 해당 프로세스가 오탐인지 확인하도록 안내하고, 윈도우 작업 관리자에서 수동 종료 혹은 일시 중지 해제(재개)하는 가이드 포함)
     * **2. 소프트웨어 취약점 (CVE):** (software_info 분석. 해킹 타겟이 되기 쉬운 구버전 프로그램 지적)
     * **3. 프로세스 및 네트워크:** (의심스러운 프로세스나 외부로 열려있는 위험 포트 분석)
     * **4. 시스템 이벤트 로그:** (비정상적인 로그인 실패나 권한 변경 징후 분석)
@@ -142,6 +143,7 @@ async def receive_report(payload: AgentPayload, background_tasks: BackgroundTask
             if pending == "reset_ransomware":
                 payload_dict["ransomware_info"]["status"] = "Safe"
                 payload_dict["ransomware_info"]["tampered_files"] = []
+                payload_dict["ransomware_info"]["suspended_processes"] = []
             
             # 명령을 보냈으니 대기열에서 삭제
             connected_agents_db[payload.machine_id]["pending_command"] = None
@@ -167,6 +169,7 @@ async def reset_agent_status(machine_id: str):
         # 대시보드 화면이 바로 초록색으로 변하도록 서버 측 데이터도 임시로 즉시 초기화
         connected_agents_db[machine_id]["security_data"]["ransomware_info"]["status"] = "Safe"
         connected_agents_db[machine_id]["security_data"]["ransomware_info"]["tampered_files"] = []
+        connected_agents_db[machine_id]["security_data"]["ransomware_info"]["suspended_processes"] = []
         connected_agents_db[machine_id]["ai_analysis"] = "분석 중..." # AI에게도 정상 상태로 다시 분석하라고 지시
         
         return {"status": "success", "message": "경고가 해제되었습니다. 에이전트를 초기화합니다."}
@@ -236,4 +239,4 @@ async def serve_frontend():
 
 if __name__ == "__main__":
     print("🚀 보안 SaaS 수집 서버를 시작합니다...")
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=28080, reload=True)
