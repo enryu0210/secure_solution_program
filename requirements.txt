@@ -4,6 +4,6 @@ fastapi
 uvicorn
 pydantic
 requests
-groq
+ollama
 python-dotenv
 watchdog

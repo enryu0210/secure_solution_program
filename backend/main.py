@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import uvicorn
-from groq import Groq
-from dotenv import load_dotenv # 추가된 부분
+import ollama
+from dotenv import load_dotenv
 
 # SQLite 영속화 모듈 (기존 인메모리 dict를 대체).
 # - 같은 폴더(backend/)에 있는 db.py를 직접 임포트.
@@ -15,19 +15,21 @@ from dotenv import load_dotenv # 추가된 부분
 import db
 
 # ==========================================
-# 1. 환경 변수 로드 및 Groq 클라이언트 초기화
+# 1. 환경 변수 로드 및 Ollama 클라이언트 초기화
 # ==========================================
 # 같은 폴더에 있는 .env 파일을 읽어옵니다.
 load_dotenv()
 
-# os.getenv를 통해 API 키를 안전하게 가져옵니다.
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Ollama 로컬 데몬 주소와 사용 모델은 .env로 외부화합니다.
+# - 기본 호스트: http://localhost:11434 (Ollama 표준 포트)
+# - 기본 모델 : gemma3 (Google Gemma 라인 중 현 시점 최신 안정 버전)
+#   ※ Gemma 4가 정식 출시되어 Ollama 라이브러리에 등록되면,
+#      .env의 OLLAMA_MODEL 값만 'gemma4'로 바꾸면 자동 적용됩니다.
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3")
 
-# 키가 제대로 로드되지 않았을 때를 대비한 방어 코드
-if not GROQ_API_KEY:
-    raise ValueError("🚨 .env 파일에서 GROQ_API_KEY를 찾을 수 없습니다! 설정 파일을 확인해 주세요.")
-
-client = Groq(api_key=GROQ_API_KEY)
+# Ollama 클라이언트는 내부적으로 httpx를 쓰므로, 호스트만 지정하면 끝입니다.
+ollama_client = ollama.Client(host=OLLAMA_HOST)
 
 app = FastAPI(title="보안 에이전트 수집 및 AI 분석 서버")
 
@@ -116,27 +118,40 @@ def analyze_security_with_ai(machine_id: str, payload_data: dict):
     """
     
     try:
-        chat_completion = client.chat.completions.create(
+        # Ollama chat API 호출. options에 샘플링 파라미터를 넣는 방식.
+        # temperature=0.2는 일관성 있는 보안 분석을 위해 낮게 유지.
+        response = ollama_client.chat(
+            model=OLLAMA_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": str(payload_data)}
+                {"role": "user", "content": str(payload_data)},
             ],
-            # 모델 ID는 사용자 지정값(gemma4-latest)을 사용합니다.
-            # Groq 카탈로그에 해당 슬러그가 없으면 401/404로 떨어지니,
-            # 운영 환경에서 오류 발생 시 Groq 콘솔의 정확한 ID(예: gemma2-9b-it 등)로 교체하세요.
-            model="gemma4-latest",
-            temperature=0.2,
+            options={"temperature": 0.2},
         )
 
-        ai_report = chat_completion.choices[0].message.content
+        # Ollama 응답 포맷: {"message": {"role": "assistant", "content": "..."}, ...}
+        ai_report = response["message"]["content"]
 
         # SQLite에 분석 결과만 부분 갱신. 이미 행이 사라졌으면 update_ai_analysis가 False를 반환.
         if db.update_ai_analysis(machine_id, ai_report):
             print(f"[{machine_id}] ✅ AI 분석 완료 및 저장 성공!")
 
     except Exception as e:
-        print(f"[{machine_id}] ❌ AI 분석 중 오류 발생: {e}")
-        db.update_ai_analysis(machine_id, "AI 분석을 일시적으로 사용할 수 없습니다.")
+        # Ollama 미기동 / 모델 미설치 같은 흔한 실수에 즉시 단서를 제공.
+        # (운영자가 콘솔만 보고도 다음 액션을 알 수 있도록 한국어 힌트를 덧붙임)
+        err_text = str(e).lower()
+        if "model" in err_text and ("not found" in err_text or "404" in err_text):
+            hint = f" (해결: 백엔드 머신에서 `ollama pull {OLLAMA_MODEL}` 실행)"
+        elif "connect" in err_text or "refused" in err_text or "timeout" in err_text:
+            hint = f" (해결: `ollama serve`가 실행 중인지, OLLAMA_HOST={OLLAMA_HOST} 가 맞는지 확인)"
+        else:
+            hint = ""
+
+        print(f"[{machine_id}] ❌ AI 분석 중 오류 발생: {e}{hint}")
+        db.update_ai_analysis(
+            machine_id,
+            f"AI 분석을 일시적으로 사용할 수 없습니다.{hint}",
+        )
 
 
 @app.post("/api/v1/report")
