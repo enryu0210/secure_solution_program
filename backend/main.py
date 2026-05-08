@@ -22,11 +22,14 @@ load_dotenv()
 
 # Ollama 로컬 데몬 주소와 사용 모델은 .env로 외부화합니다.
 # - 기본 호스트: http://localhost:11434 (Ollama 표준 포트)
-# - 기본 모델 : gemma3 (Google Gemma 라인 중 현 시점 최신 안정 버전)
-#   ※ Gemma 4가 정식 출시되어 Ollama 라이브러리에 등록되면,
-#      .env의 OLLAMA_MODEL 값만 'gemma4'로 바꾸면 자동 적용됩니다.
+# - 기본 모델 : gemma4 (Google Gemma 라인 최신 버전)
+#   ※ 사이즈 선택 가이드:
+#     · 가벼운 환경(노트북, GPU 없음)        → OLLAMA_MODEL=gemma4:e2b
+#     · 일반 데스크톱(VRAM ~12GB)            → OLLAMA_MODEL=gemma4:e4b
+#     · 워크스테이션(VRAM 20GB+)             → OLLAMA_MODEL=gemma4:26b 또는 :31b
+#     · 자원 0(클라우드 위임)                → OLLAMA_MODEL=gemma4:31b-cloud
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4")
 
 # Ollama 클라이언트는 내부적으로 httpx를 쓰므로, 호스트만 지정하면 끝입니다.
 ollama_client = ollama.Client(host=OLLAMA_HOST)
