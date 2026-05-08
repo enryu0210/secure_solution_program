@@ -9,6 +9,11 @@ import uvicorn
 from groq import Groq
 from dotenv import load_dotenv # 추가된 부분
 
+# SQLite 영속화 모듈 (기존 인메모리 dict를 대체).
+# - 같은 폴더(backend/)에 있는 db.py를 직접 임포트.
+# - 서버 재시작 시에도 에이전트 상태/대기 명령이 유지되도록 합니다.
+import db
+
 # ==========================================
 # 1. 환경 변수 로드 및 Groq 클라이언트 초기화
 # ==========================================
@@ -74,7 +79,10 @@ class AgentPayload(BaseModel):
     ransomware_info: RansomwareInfo = Field(default_factory=RansomwareInfo)
     usb_info: UsbInfo = Field(default_factory=UsbInfo)
 
-connected_agents_db = {}
+# 앱 부팅 시 SQLite 스키마/PRAGMA 1회 초기화.
+# (모듈 로드 타이밍에 호출되므로, --reload 시에도 매번 idempotent하게 동작합니다.)
+db.init_db()
+
 
 def analyze_security_with_ai(machine_id: str, payload_data: dict):
     print(f"[{machine_id}] 🤖 AI 보안 분석을 시작합니다...")
@@ -113,65 +121,59 @@ def analyze_security_with_ai(machine_id: str, payload_data: dict):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": str(payload_data)}
             ],
-            model="llama-3.3-70b-versatile", 
+            # 모델 ID는 사용자 지정값(gemma4-latest)을 사용합니다.
+            # Groq 카탈로그에 해당 슬러그가 없으면 401/404로 떨어지니,
+            # 운영 환경에서 오류 발생 시 Groq 콘솔의 정확한 ID(예: gemma2-9b-it 등)로 교체하세요.
+            model="gemma4-latest",
             temperature=0.2,
         )
-        
+
         ai_report = chat_completion.choices[0].message.content
-        
-        if machine_id in connected_agents_db:
-            connected_agents_db[machine_id]["ai_analysis"] = ai_report
+
+        # SQLite에 분석 결과만 부분 갱신. 이미 행이 사라졌으면 update_ai_analysis가 False를 반환.
+        if db.update_ai_analysis(machine_id, ai_report):
             print(f"[{machine_id}] ✅ AI 분석 완료 및 저장 성공!")
-            
+
     except Exception as e:
         print(f"[{machine_id}] ❌ AI 분석 중 오류 발생: {e}")
-        if machine_id in connected_agents_db:
-            connected_agents_db[machine_id]["ai_analysis"] = "AI 분석을 일시적으로 사용할 수 없습니다."
+        db.update_ai_analysis(machine_id, "AI 분석을 일시적으로 사용할 수 없습니다.")
 
 
 @app.post("/api/v1/report")
 async def receive_report(payload: AgentPayload, background_tasks: BackgroundTasks):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     payload_dict = payload.model_dump()
-    
-    # 이전에 대기 중이던 명령(command)이 있는지 확인합니다.
-    command_to_send = []
-    if payload.machine_id in connected_agents_db:
-        pending = connected_agents_db[payload.machine_id].get("pending_command")
-        if pending:
-            command_to_send.append(pending)
-            if pending == "reset_ransomware":
-                payload_dict["ransomware_info"]["status"] = "Safe"
-                payload_dict["ransomware_info"]["tampered_files"] = []
-                payload_dict["ransomware_info"]["suspended_processes"] = []
-            
-            # 명령을 보냈으니 대기열에서 삭제
-            connected_agents_db[payload.machine_id]["pending_command"] = None
 
-    connected_agents_db[payload.machine_id] = {
-        "last_updated": current_time,
-        "security_data": payload_dict,
-        "ai_analysis": "분석 중...",
-        "pending_command": None # 초기화
-    }
-    
+    # 1) 대기 명령이 있으면 원자적으로 회수(=POP). 없으면 None.
+    pending = db.pop_pending_command(payload.machine_id)
+    command_to_send = []
+    if pending:
+        command_to_send.append(pending)
+        # reset_ransomware 명령이라면 서버 측 표시 데이터도 즉시 Safe로 정리해줍니다.
+        # (에이전트가 다음 스캔 결과를 올리기 전까지 대시보드가 잠깐 빨갛게 남는 걸 방지)
+        if pending == "reset_ransomware":
+            payload_dict["ransomware_info"]["status"] = "Safe"
+            payload_dict["ransomware_info"]["tampered_files"] = []
+            payload_dict["ransomware_info"]["suspended_processes"] = []
+
+    # 2) 풀 리포트로 행을 통째 upsert. AI 분석은 백그라운드 태스크에서 별도로 채웁니다.
+    db.upsert_agent_full(
+        machine_id=payload.machine_id,
+        last_updated=current_time,
+        security_data=payload_dict,
+        ai_analysis="분석 중...",
+        pending_command=None,  # 방금 회수했으므로 비어 있는 상태로 시작
+    )
+
     background_tasks.add_task(analyze_security_with_ai, payload.machine_id, payload_dict)
-    
+
     # 에이전트에게 보내는 응답(JSON)에 'commands' 리스트를 추가해서 보냅니다.
     return {"status": "success", "commands": command_to_send}
 
 @app.post("/api/v1/agent/{machine_id}/reset")
 async def reset_agent_status(machine_id: str):
-    if machine_id in connected_agents_db:
-        # 에이전트에게 내릴 명령을 대기열에 추가합니다.
-        connected_agents_db[machine_id]["pending_command"] = "reset_ransomware"
-        
-        # 대시보드 화면이 바로 초록색으로 변하도록 서버 측 데이터도 임시로 즉시 초기화
-        connected_agents_db[machine_id]["security_data"]["ransomware_info"]["status"] = "Safe"
-        connected_agents_db[machine_id]["security_data"]["ransomware_info"]["tampered_files"] = []
-        connected_agents_db[machine_id]["security_data"]["ransomware_info"]["suspended_processes"] = []
-        connected_agents_db[machine_id]["ai_analysis"] = "분석 중..." # AI에게도 정상 상태로 다시 분석하라고 지시
-        
+    # SQLite 트랜잭션 1회로 [표시 데이터 초기화 + 명령 큐잉 + AI 상태 리셋]을 한 번에 처리.
+    if db.reset_ransomware_state(machine_id):
         return {"status": "success", "message": "경고가 해제되었습니다. 에이전트를 초기화합니다."}
     return {"status": "error", "message": "해당 에이전트를 찾을 수 없습니다."}
 
@@ -181,18 +183,13 @@ class CommandPayload(BaseModel):
 
 @app.post("/api/v1/agent/{machine_id}/command")
 async def send_command_to_agent(machine_id: str, payload: CommandPayload):
-    if machine_id in connected_agents_db:
-        # 에이전트에게 내릴 구체적인 명령을 딕셔너리 형태로 대기열에 추가
-        command_dict = {
-            "action": payload.action,
-            "target": payload.target
-        }
-        # 기존 문자열 대신 리스트로 여러 명령을 관리할 수도 있지만, 
-        # 일단 가장 최근 명령 1개를 덮어씌우는 방식으로 심플하게 구현
-        connected_agents_db[machine_id]["pending_command"] = command_dict
-        
+    # 가장 최근 명령 1개를 덮어씌우는 기존 동작은 db.set_pending_command가 그대로 유지합니다.
+    # (큐 형태 다중 명령은 별도 후속 작업으로 보류)
+    command_dict = {"action": payload.action, "target": payload.target}
+
+    if db.set_pending_command(machine_id, command_dict):
         return {"status": "success", "message": f"[{payload.action}] 명령이 {machine_id} 대기열에 추가되었습니다."}
-    
+
     return {"status": "error", "message": "해당 에이전트를 찾을 수 없습니다."}
 
 # 기존 모델들 아래에 실시간 전용 Pydantic 모델 추가
@@ -202,28 +199,23 @@ class RealtimePayload(BaseModel):
 @app.post("/api/v1/agent/{machine_id}/realtime")
 async def handle_realtime_update(machine_id: str, payload: RealtimePayload):
     """3초마다 에이전트로부터 실시간 프로세스 정보를 받고, 대기 중인 C&C 명령을 반환합니다."""
-    if machine_id in connected_agents_db:
-        # 1. 기존 데이터베이스에 '프로세스 정보'만 덮어쓰기 (AI 분석 재요청 안 함)
-        if "security_data" not in connected_agents_db[machine_id]:
-            connected_agents_db[machine_id]["security_data"] = {}
-            
-        connected_agents_db[machine_id]["security_data"]["process_info"] = payload.process_info.model_dump()
-        
-        # 2. 대기 중인 명령이 있는지 확인하고 전달
-        cmd = connected_agents_db[machine_id].get("pending_command")
-        commands = [cmd] if cmd else []
-        if cmd:
-            del connected_agents_db[machine_id]["pending_command"]
-            
-        return {"status": "success", "commands": commands}
-        
-    return {"status": "error", "message": "에이전트 미등록"}
+    # 1. process_info만 부분 갱신. 풀 리포트 이전이면 행이 없어 False가 반환됨.
+    if not db.update_process_info(machine_id, payload.process_info.model_dump()):
+        return {"status": "error", "message": "에이전트 미등록"}
+
+    # 2. 대기 명령은 원자적으로 회수.
+    cmd = db.pop_pending_command(machine_id)
+    commands = [cmd] if cmd else []
+
+    return {"status": "success", "commands": commands}
 
 @app.get("/api/v1/dashboard")
 async def get_dashboard_data():
+    # SQLite에서 전체 에이전트를 조회. 응답 스키마는 기존 프론트엔드가 기대하는 형태와 동일.
+    agents = db.get_all_agents()
     return {
-        "total_connected_agents": len(connected_agents_db),
-        "agents": connected_agents_db
+        "total_connected_agents": len(agents),
+        "agents": agents,
     }
 
 @app.get("/")
