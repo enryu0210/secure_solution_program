@@ -207,7 +207,7 @@ async def handle_realtime_update(machine_id: str, payload: RealtimePayload):
         if "security_data" not in connected_agents_db[machine_id]:
             connected_agents_db[machine_id]["security_data"] = {}
             
-        connected_agents_db[machine_id]["security_data"]["process_info"] = payload.process_info.dict()
+        connected_agents_db[machine_id]["security_data"]["process_info"] = payload.process_info.model_dump()
         
         # 2. 대기 중인 명령이 있는지 확인하고 전달
         cmd = connected_agents_db[machine_id].get("pending_command")
