@@ -14,3 +14,9 @@ Thumbs.db
 *.db
 *.db-wal
 *.db-shm
+
+.claude/
+.serena/
+
+# 백엔드 런타임 로그 (rotating log; 로컬/운영 머신마다 별도)
+backend/logs/

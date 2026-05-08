@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 # - 서버 재시작 시에도 에이전트 상태/대기 명령이 유지되도록 합니다.
 import db
 
+# 전역 로거 (콘솔 + 파일 회전 출력). print() 대신 사용.
+from logger import logger
+
 # ==========================================
 # 1. 환경 변수 로드 및 Ollama 클라이언트 초기화
 # ==========================================
@@ -130,7 +133,7 @@ SECURITY_ANALYSIS_SYSTEM_PROMPT = textwrap.dedent("""\
 
 
 def analyze_security_with_ai(machine_id: str, payload_data: dict):
-    print(f"[{machine_id}] 🤖 AI 보안 분석을 시작합니다...")
+    logger.info("[%s] 🤖 AI 보안 분석을 시작합니다...", machine_id)
 
     # 모델이 입력을 "JSON 데이터"로 명확히 인식하도록 정식 JSON으로 직렬화.
     # str(dict)을 쓰면 작은따옴표 + Python repr 형식이 되어 모델이 형식을 흉내내며 JSON으로 응답해버리는 문제가 있었음.
@@ -163,7 +166,7 @@ def analyze_security_with_ai(machine_id: str, payload_data: dict):
 
         # SQLite에 분석 결과만 부분 갱신. 이미 행이 사라졌으면 update_ai_analysis가 False를 반환.
         if db.update_ai_analysis(machine_id, ai_report):
-            print(f"[{machine_id}] ✅ AI 분석 완료 및 저장 성공!")
+            logger.info("[%s] ✅ AI 분석 완료 및 저장 성공", machine_id)
 
     except Exception as e:
         # Ollama 미기동 / 모델 미설치 같은 흔한 실수에 즉시 단서를 제공.
@@ -176,7 +179,8 @@ def analyze_security_with_ai(machine_id: str, payload_data: dict):
         else:
             hint = ""
 
-        print(f"[{machine_id}] ❌ AI 분석 중 오류 발생: {e}{hint}")
+        # exc_info=True 로 스택 트레이스도 함께 기록 (사후 디버깅용)
+        logger.error("[%s] ❌ AI 분석 중 오류 발생: %s%s", machine_id, e, hint, exc_info=True)
         db.update_ai_analysis(
             machine_id,
             f"AI 분석을 일시적으로 사용할 수 없습니다.{hint}",
@@ -253,6 +257,69 @@ async def handle_realtime_update(machine_id: str, payload: RealtimePayload):
 
     return {"status": "success", "commands": commands}
 
+@app.get("/api/v1/health")
+async def health_check():
+    """
+    운영 모니터링용 헬스체크 엔드포인트.
+
+    [점검 항목]
+    - db        : SQLite 연결 + 간단한 SELECT 가능 여부
+    - ollama    : Ollama 데몬 응답 + 설정된 모델 보유 여부
+    - overall   : 위 두 항목이 모두 ok면 'ok', 아니면 'degraded'
+
+    [활용]
+    - Docker/Kubernetes liveness probe
+    - 외부 모니터링(UptimeRobot 등)에서 200/503 분기
+    - 에이전트 부팅 시 백엔드 가용성 사전 확인
+    """
+    # 1) DB 점검: SELECT가 한 번 통하면 OK로 판단.
+    db_status = {"ok": False, "detail": ""}
+    try:
+        agent_count = db.total_agents()
+        db_status = {"ok": True, "detail": f"agents={agent_count}"}
+    except Exception as e:
+        db_status = {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+        logger.error("헬스체크: DB 점검 실패: %s", e, exc_info=True)
+
+    # 2) Ollama 점검: 모델 목록을 받아 OLLAMA_MODEL이 실제 설치되어 있는지까지 확인.
+    #    (서버는 살아있는데 모델만 안 깔린 상황을 잡기 위함)
+    ollama_status = {"ok": False, "detail": ""}
+    try:
+        models_resp = ollama_client.list()
+        # ollama 클라이언트 버전에 따라 응답 형태가 dict / pydantic 모델 두 가지로 나옴.
+        # 두 경우 모두에서 모델 이름 리스트를 안전하게 뽑아냄.
+        raw_models = (
+            models_resp.get("models", []) if isinstance(models_resp, dict)
+            else getattr(models_resp, "models", [])
+        )
+        installed = [
+            (m.get("model") or m.get("name")) if isinstance(m, dict)
+            else (getattr(m, "model", None) or getattr(m, "name", None))
+            for m in raw_models
+        ]
+        installed = [name for name in installed if name]
+
+        if OLLAMA_MODEL in installed:
+            ollama_status = {"ok": True, "detail": f"model={OLLAMA_MODEL} ready"}
+        else:
+            ollama_status = {
+                "ok": False,
+                "detail": f"model '{OLLAMA_MODEL}' not installed. installed={installed}",
+            }
+    except Exception as e:
+        ollama_status = {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+        logger.error("헬스체크: Ollama 점검 실패: %s", e, exc_info=True)
+
+    overall = "ok" if db_status["ok"] and ollama_status["ok"] else "degraded"
+    return {
+        "status": overall,
+        "checks": {
+            "db": db_status,
+            "ollama": ollama_status,
+        },
+    }
+
+
 @app.get("/api/v1/dashboard")
 async def get_dashboard_data():
     # SQLite에서 전체 에이전트를 조회. 응답 스키마는 기존 프론트엔드가 기대하는 형태와 동일.
@@ -274,5 +341,5 @@ async def serve_frontend():
     return FileResponse(html_path)
 
 if __name__ == "__main__":
-    print("🚀 보안 SaaS 수집 서버를 시작합니다...")
+    logger.info("🚀 보안 SaaS 수집 서버를 시작합니다...")
     uvicorn.run("main:app", host="0.0.0.0", port=28080, reload=True)
