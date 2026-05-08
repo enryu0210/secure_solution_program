@@ -1,4 +1,6 @@
 import os
+import json
+import textwrap
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -89,15 +91,21 @@ class AgentPayload(BaseModel):
 db.init_db()
 
 
-def analyze_security_with_ai(machine_id: str, payload_data: dict):
-    print(f"[{machine_id}] 🤖 AI 보안 분석을 시작합니다...")
-    
-    system_prompt = """
+# 시스템 프롬프트는 모듈 상수로 분리.
+# - 함수 호출마다 문자열을 새로 만들지 않아 약간 더 효율적
+# - textwrap.dedent로 트리플 쿼트의 들여쓰기 공백을 제거(불필요한 토큰 낭비 방지)
+# - 마지막에 strip()으로 앞뒤 공백 제거
+SECURITY_ANALYSIS_SYSTEM_PROMPT = textwrap.dedent("""\
     당신은 B2B 중소기업(SME)을 위한 최고 수준의 사이버 보안 전문가입니다.
-    제공되는 JSON 형태의 시스템 스캔 데이터(프로세스, 네트워크, 이벤트 로그, 설치된 소프트웨어, 랜섬웨어 허니팟 상태)를 꼼꼼히 분석하여, 보안 지식이 전혀 없는 비전문가 관리자도 즉시 이해하고 조치할 수 있는 보고서를 작성하세요.
+    사용자 메시지에는 시스템 스캔 결과가 JSON 형태로 들어 있습니다.
+    이 데이터를 꼼꼼히 분석하여, 보안 지식이 전혀 없는 비전문가 관리자도 즉시 이해하고 조치할 수 있는 보고서를 작성하세요.
 
-    반드시 아래의 마크다운 템플릿 양식을 엄격하게 지켜서 한국어로 작성하세요 (한국어 이외의 언어는 사용하지 마세요):
+    [절대 규칙]
+    - 출력은 반드시 한국어 마크다운 형식이어야 합니다. JSON, 영어, 코드 블록(```), 또는 다른 형식으로 답변하지 마세요.
+    - 사용자에게 추가 정보를 되묻지 마세요. 주어진 데이터만으로 분석을 완료하세요.
+    - 아래 [출력 템플릿]의 섹션 제목과 순서를 그대로 유지하세요.
 
+    [출력 템플릿]
     ### 📊 전반적인 보안 상태 요약
     * **상태 평가:** (데이터를 바탕으로 '안전', '주의', '심각' 중 하나로 평가)
     * **종합 요약:** (현재 시스템의 핵심 보안 이슈를 1~2줄로 요약)
@@ -118,16 +126,34 @@ def analyze_security_with_ai(machine_id: str, payload_data: dict):
       * **예방책:** (재발 방지를 위한 장기적인 설정)
 
     * 주의사항: 발견된 특정 위협이 없다면 해당 항목은 "현재 탐지된 특이사항 없이 안전합니다. 정기적인 OS 업데이트를 유지해 주세요."라고 기재하세요.
-    """
-    
+""").strip()
+
+
+def analyze_security_with_ai(machine_id: str, payload_data: dict):
+    print(f"[{machine_id}] 🤖 AI 보안 분석을 시작합니다...")
+
+    # 모델이 입력을 "JSON 데이터"로 명확히 인식하도록 정식 JSON으로 직렬화.
+    # str(dict)을 쓰면 작은따옴표 + Python repr 형식이 되어 모델이 형식을 흉내내며 JSON으로 응답해버리는 문제가 있었음.
+    payload_json = json.dumps(payload_data, ensure_ascii=False, indent=2)
+
+    # user 메시지에 "분석을 수행하라"는 명시적 작업 지시를 함께 넣습니다.
+    # 데이터만 던지면 작은 모델은 "뭘 하라는 거지?" 하고 영어로 되묻는 사례가 있었습니다.
+    user_message = (
+        "아래는 한 대의 PC에서 수집된 시스템 스캔 결과입니다.\n"
+        "시스템 프롬프트의 [출력 템플릿] 형식 그대로 한국어 보안 보고서를 작성하세요.\n\n"
+        "```json\n"
+        f"{payload_json}\n"
+        "```"
+    )
+
     try:
         # Ollama chat API 호출. options에 샘플링 파라미터를 넣는 방식.
         # temperature=0.2는 일관성 있는 보안 분석을 위해 낮게 유지.
         response = ollama_client.chat(
             model=OLLAMA_MODEL,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": str(payload_data)},
+                {"role": "system", "content": SECURITY_ANALYSIS_SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
             ],
             options={"temperature": 0.2},
         )
